@@ -290,6 +290,7 @@ class NixlConnectorWorker:
         self.nixl_wrapper = NixlWrapper(str(uuid.uuid4()), None)
         # Map of engine_id -> list[agent_names] (1 per rank).
         self._remote_agents: dict[str, list[str]] = {}
+        self._side_channel_host = str(os.environ.get("VLLM_NIXL_SIDE_CHANNEL_HOST", "localhost"))
 
         # Metadata.
         self.engine_id = engine_id
@@ -439,8 +440,9 @@ class NixlConnectorWorker:
                              xfer_buffers[first_layer_name][b, 0, 0, 0])
             remote_engine_id = None  # HACK for debug send
 
+        _side_channel_address = f"tcp://{self._side_channel_host}:5577"
         if NIXL_ROLE == "SENDER":
-            _side_channel.connect("tcp://10.128.0.28:5577")
+            _side_channel.connect(_side_channel_address)
             _side_channel.setsockopt(zmq.LINGER, 0)  # type: ignore
             metadata = NixlAgentMetadata(
                 engine_id=self.engine_id,
@@ -460,7 +462,7 @@ class NixlConnectorWorker:
             logger.debug("GOT ACK %s", ack)
 
         elif NIXL_ROLE == "RECVER":
-            _side_channel.bind("tcp://10.128.0.28:5577")
+            _side_channel.bind(_side_channel_address)
             _side_channel.setsockopt(zmq.LINGER, 0)  # type: ignore
             decoder = msgspec.msgpack.Decoder(NixlAgentMetadata)
             metadata_bytes = _side_channel.recv()
