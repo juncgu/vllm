@@ -291,6 +291,7 @@ class NixlConnectorWorker:
         # Map of engine_id -> list[agent_names] (1 per rank).
         self._remote_agents: dict[str, list[str]] = {}
         self._side_channel_host = str(os.environ.get("VLLM_NIXL_SIDE_CHANNEL_HOST", "localhost"))
+        self._side_channel_port = int(os.environ.get("VLLM_NIXL_SIDE_CHANNEL_PORT", "5577"))
 
         # Metadata.
         self.engine_id = engine_id
@@ -440,7 +441,7 @@ class NixlConnectorWorker:
                              xfer_buffers[first_layer_name][b, 0, 0, 0])
             remote_engine_id = None  # HACK for debug send
 
-        _side_channel_address = f"tcp://{self._side_channel_host}:5577"
+        _side_channel_address = f"tcp://{self._side_channel_host}:${self._side_channel_port}"
         if NIXL_ROLE == "SENDER":
             _side_channel.connect(_side_channel_address)
             _side_channel.setsockopt(zmq.LINGER, 0)  # type: ignore
