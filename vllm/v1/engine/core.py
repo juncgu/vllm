@@ -154,6 +154,7 @@ class EngineCore:
         num_cpu_blocks = 0
         scheduler_kv_cache_config = kv_cache_configs[0]
 
+        logger.info(f"----jcgu _initialize_kv_caches")
         # Initialize kv cache and warmup the execution
         self.model_executor.initialize_from_config(kv_cache_configs)
 

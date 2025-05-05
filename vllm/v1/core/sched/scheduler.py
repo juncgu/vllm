@@ -372,6 +372,7 @@ class Scheduler(SchedulerInterface):
                 if (request.do_remote_prefill and num_external_tokens > 0):
                     # Allocate slots for the external tokens, but skip
                     # caching until after the KV transfer is done.
+                    logger.info(f"----jcgu get remote_prefill: {request.request_id}")
                     new_blocks = self.kv_cache_manager.allocate_slots(
                         request,
                         num_external_tokens,
@@ -825,6 +826,7 @@ class Scheduler(SchedulerInterface):
                         remote_block_ids=remote_blocks,
                         remote_engine_id=engine_id,
                     )
+                    logger.info(f"-----jcgu finished prefill: {request.request_id}, remote_blocks: {remote_blocks}")
 
                 # Add EngineCoreOutput for this Request.
                 outputs.append(
