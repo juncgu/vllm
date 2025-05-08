@@ -28,6 +28,7 @@ from vllm.v1.core.sched.output import SchedulerOutput
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionMetadata
     from vllm.forward_context import ForwardContext
+    from vllm.v1.core.kv_cache_manager import KVCacheBlocks
     from vllm.v1.request import Request
 
 GET_META_MSG = b"get_meta_msg"
@@ -103,18 +104,19 @@ class NixlConnector(KVConnectorBase_V1):
     ############################################################
     # Scheduler Side Methods
     ############################################################
-    def get_num_new_matched_tokens(self, request: "Request",
-                                   num_computed_tokens: int) -> int:
+    def get_num_new_matched_tokens(
+            self, request: "Request",
+            num_computed_tokens: int) -> tuple[int, bool]:
         assert self.connector_scheduler is not None
         return self.connector_scheduler.get_num_new_matched_tokens(
             request, num_computed_tokens)
 
     def update_state_after_alloc(self, request: "Request",
-                                 block_ids: list[int],
+                                 blocks: "KVCacheBlocks",
                                  num_external_tokens: int):
         assert self.connector_scheduler is not None
         return self.connector_scheduler.update_state_after_alloc(
-            request, block_ids, num_external_tokens)
+            request, blocks, num_external_tokens)
 
     def build_connector_meta(
         self,
@@ -169,26 +171,27 @@ class NixlConnectorScheduler:
         # the scheduler. Used to make metadata passed to Worker.
         self._reqs_need_recv: dict[str, tuple[Request, list[int]]] = {}
 
-    def get_num_new_matched_tokens(self, request: "Request",
-                                   num_computed_tokens: int) -> int:
+    def get_num_new_matched_tokens(
+            self, request: "Request",
+            num_computed_tokens: int) -> tuple[int, bool]:
         """For remote prefill, allocate for all tokens."""
-
-        # NOTE: this function is called in the WAITING loop.
-        # So we should only have full blocks of computed tokens.
-        assert num_computed_tokens % self.block_size == 0
-
         if request.do_remote_prefill:
+            assert num_computed_tokens % self.block_size == 0
             rounded_num_prompt_tokens = round_down(
                 len(request.prompt_token_ids), self.block_size)
-            return max(rounded_num_prompt_tokens - num_computed_tokens, 0)
+            count = max(rounded_num_prompt_tokens - num_computed_tokens, 0)
+            return count, count > 0
 
-        return 0
+        return 0, False
 
     def update_state_after_alloc(self, request: "Request",
-                                 block_ids: list[int],
+                                 blocks: "KVCacheBlocks",
                                  num_external_tokens: int):
         if request.do_remote_prefill and num_external_tokens > 0:
-            self._reqs_need_recv[request.request_id] = (request, block_ids)
+            self._reqs_need_recv[request.request_id] = (request,
+                                                        blocks.get_block_ids())
+            # Only trigger a KV transfer once per request.
+            request.do_remote_prefill = False
 
     def build_connector_meta(
         self,
@@ -331,7 +334,7 @@ class NixlConnectorWorker:
     def register_kv_caches(self, kv_caches: dict[str, torch.Tensor]):
         """Register the KV Cache data in nixl."""
 
-        first_layer_name, first_kv_cache = next(iter(kv_caches.items()))
+        _, first_kv_cache = next(iter(kv_caches.items()))
         kv_elem_size = first_kv_cache.element_size()
 
         # TODO(tms): Find a more robust way to detect and handle MLA
@@ -555,7 +558,6 @@ class NixlConnectorWorker:
         We check for these trnxs to complete in each step().
         """
         for req_id, meta in metadata.requests.items():
-            # NOTE: this is non-blocking
             logger.debug(
                 "start_load_kv for request %s from remote engine %s. "
                 "Num local_block_ids: %s. Num remote_block_ids: %s. ", req_id,
