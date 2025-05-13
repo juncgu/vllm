@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import sys
 import time
 import sys
 from collections.abc import (AsyncGenerator, Iterable, Iterator, Mapping,
@@ -10,14 +11,14 @@ from http import HTTPStatus
 from typing import (Annotated, Any, Callable, ClassVar, Generic, Optional,
                     TypeVar, Union)
 
-if sys.version_info < (3, 12):
-    from typing_extensions import TypedDict
-else:
-    from typing import TypedDict
-
 from fastapi import Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import Headers
+
+if sys.version_info >= (3, 12):
+    from typing import TypedDict
+else:
+    from typing_extensions import TypedDict
 
 import vllm.envs as envs
 from vllm.config import ModelConfig

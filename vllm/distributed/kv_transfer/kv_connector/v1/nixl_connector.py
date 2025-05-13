@@ -316,6 +316,10 @@ class NixlConnectorScheduler:
                 logger.info(f"---jcgu1: do_remote_prefill, id:{request.request_id}, block_ids: {blocks.get_unhashed_block_ids()}")
 
 
+            else:
+                assert num_external_tokens == 0
+            # Only trigger 1 KV transfer per request.
+            request.kv_transfer_params.do_remote_prefill = False
 
     def build_connector_meta(
         self,

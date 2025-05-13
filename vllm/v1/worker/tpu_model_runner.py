@@ -536,7 +536,6 @@ class TPUModelRunner(LoRAModelRunnerMixin):
                block_offsets,
                out=self.input_batch.block_table.
                slot_mapping_np[:total_num_scheduled_tokens])
-            #    slot_mapping_cpu[:total_num_scheduled_tokens].numpy())
 
         # Prepare the attention metadata.
         self.query_start_loc_np[0] = 0
