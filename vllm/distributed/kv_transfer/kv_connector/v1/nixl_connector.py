@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import msgspec
 import torch
+import torch_xla.runtime as xr
 import zmq
 
 from vllm import envs
@@ -590,11 +591,20 @@ class NixlConnectorWorker:
         xfer_buffers: dict[str, torch.Tensor] = {}
         try:
             for layer_name, kv_cache in kv_caches.items():
-                kv_shape = kv_cache.shape
                 kv_dtype = kv_cache.dtype
+                kv_shape = kv_cache.shape
+                # NOTE: TPU pallas_v1 kv layout is NHD
+                # (num_blocks, block_size, num_kv_heads * 2, head_size).
+                # To support hetergenous TP, host_xfer_buffer needs to be
+                # follow HND layout.
+                if self._use_pallas_v1:
+                    num_blocks, block_size, n_kv_heads_x_2, head_dim = kv_shape
+                    kv_shape = (num_blocks, n_kv_heads_x_2, block_size,
+                                head_dim)
                 xfer_buffers[layer_name] = torch.zeros(kv_shape,
                                                        dtype=kv_dtype,
                                                        device="cpu")
+                logger.info(f"--jcgu layer[{layer_name}]: {kv_shape}")
         except MemoryError as e:
             logger.error("NIXLConnectorWorker gets %s.", e)
             raise
@@ -688,6 +698,9 @@ class NixlConnectorWorker:
         # if CPU device has no index
         self.device_index = 0 if not hasattr(self.device, "index") else \
                             self.device.index
+        logger.info(
+            f"---jcgu: {self.device_index}, device:{self.device}, xm: {xr.global_ordinal()}"
+        )
         assert self.device
         assert self.device_index >= 0, \
                f"cache device {self.device} index is invalid"
@@ -743,6 +756,7 @@ class NixlConnectorWorker:
         self.nixl_wrapper.register_memory(descs)
         logger.debug("Done registering descs")
         self._registered_descs.append(descs)
+        # time.sleep(4)
 
         # Register local/src descr for NIXL xfer.
         blocks_data = []
@@ -766,6 +780,11 @@ class NixlConnectorWorker:
         self.src_xfer_side_handle = self.nixl_wrapper.prep_xfer_dlist(
             "NIXL_INIT_AGENT", descs)
 
+        logger.info(
+            f"----jcgu: tp_rank:{self.tp_rank}, device_index: {self.device_index}, engine: {self.engine_id}"
+        )
+
+        # time.sleep(20)
         # After KV Caches registered, listen for new connections.
         metadata = NixlAgentMetadata(
             engine_id=self.engine_id,
@@ -848,8 +867,8 @@ class NixlConnectorWorker:
             "Local TP size must be divisible by remote TP size.")
         tp_ratio = self._tp_size[self.engine_id] // self._tp_size[engine_id]
         assert tp_ratio > 0, "Decode TP cannot be smaller than prefill TP"
-        assert self._use_pallas_v1 and tp_ratio == 1, \
-               "TPU (pallas_v1) DOES NOT support heterogeneous TP yet."
+        # assert self._use_pallas_v1 and tp_ratio == 1, \
+        #        "TPU (pallas_v1) DOES NOT support heterogeneous TP yet."
 
         if self.use_mla:
             # With MLA the only difference is in the number of blocks.

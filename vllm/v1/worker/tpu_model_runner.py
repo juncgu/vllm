@@ -1700,7 +1700,9 @@ def _swap_out_tpu_blocks(
     """ tpu blocks to cpu blocks"""
     torch.ops.xla.dynamo_set_buffer_donor_(tpu_cache, True)
     _tpu_cache = tpu_cache[tpu_block_indices]
-    cpu_cache[cpu_block_indices] = _tpu_cache.cpu()
+    # cpu_cache[cpu_block_indices] = _tpu_cache.cpu()
+    cpu_cache[cpu_block_indices] = _tpu_cache.cpu().transpose(-3,
+                                                              -2).contiguous()
 
 
 def h2d_copy_blocks(
@@ -1722,7 +1724,8 @@ def h2d_copy_blocks(
     for layer_name in cpu_kv_caches:
         host_tensor = cpu_kv_caches[layer_name]
         device_tensor = tpu_kv_caches[layer_name]
-        sliced_device_tensor = host_tensor[host_indices].to(tpu_device)
+        sliced_device_tensor = host_tensor[host_indices].transpose(
+            -3, -2).contiguous().to(tpu_device)
         _insert_blocks_to_tpu(sliced_device_tensor, device_tensor,
                               device_indices)
 
