@@ -848,6 +848,9 @@ class NixlConnectorWorker:
             "Local TP size must be divisible by remote TP size.")
         tp_ratio = self._tp_size[self.engine_id] // self._tp_size[engine_id]
         assert tp_ratio > 0, "Decode TP cannot be smaller than prefill TP"
+        assert self._use_pallas_v1 and tp_ratio == 1, \
+               "TPU (pallas_v1) DOES NOT support heterogeneous TP yet."
+
         if self.use_mla:
             # With MLA the only difference is in the number of blocks.
             remote_block_size = nixl_agent_meta.block_len // (
